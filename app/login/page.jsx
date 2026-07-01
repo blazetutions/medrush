@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,13 +17,13 @@ const ROLE_REDIRECT = {
 };
 
 async function fetchProfileWithRetry(userId, maxRetries = 3) {
+  const supabase = getSupabase();
   for (let i = 0; i < maxRetries; i++) {
     const { data, error } = await supabase
       .from('users')
       .select('role')
       .eq('id', userId)
       .single();
-    // Bug 13 fix: log errors instead of silently retrying
     if (error) {
       console.error(`[fetchProfileWithRetry] attempt ${i + 1}:`, error.message);
       if (i < maxRetries - 1) await new Promise(r => setTimeout(r, 500));
@@ -36,7 +36,7 @@ async function fetchProfileWithRetry(userId, maxRetries = 3) {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
+  const router  = useRouter();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
@@ -45,14 +45,14 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const supabase = getSupabase();
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      // Retry profile fetch to handle trigger race condition
       const profile = await fetchProfileWithRetry(data.user.id);
 
       if (!profile?.role) {
-        // Profile not found — insert manually as customer fallback
+        // Profile not found — upsert as customer fallback
         await supabase.from('users').upsert({
           id:    data.user.id,
           email: data.user.email,

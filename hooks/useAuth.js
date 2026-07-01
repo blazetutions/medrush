@@ -1,15 +1,24 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 
 async function fetchRole(userId) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', userId)
-    .single();
-  if (error) console.error('[useAuth] fetchRole error:', error.message);
-  return data?.role ?? null;
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .single();
+    if (error) {
+      console.error('[useAuth] fetchRole:', error.message);
+      return null;
+    }
+    return data?.role ?? null;
+  } catch (err) {
+    console.error('[useAuth] fetchRole exception:', err.message);
+    return null;
+  }
 }
 
 export function useAuth() {
@@ -20,22 +29,19 @@ export function useAuth() {
 
   useEffect(() => {
     let mounted = true;
+    const supabase = getSupabase();
 
     const init = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
-
         if (session?.user) {
           setUser(session.user);
           const r = await fetchRole(session.user.id);
-          if (mounted) {
-            // Bug 1 fix: use sentinel 'UNKNOWN' instead of null so AuthGuard can redirect
-            setRole(r ?? 'UNKNOWN');
-          }
+          if (mounted) setRole(r ?? 'UNKNOWN');
         }
       } catch (err) {
-        console.error('[useAuth] init error:', err.message);
+        console.error('[useAuth] init:', err.message);
       } finally {
         if (mounted) setLoading(false);
         initDone.current = true;
@@ -44,36 +50,46 @@ export function useAuth() {
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-      // Bug 4 fix: skip INITIAL_SESSION and events before init completes
-      if (event === 'INITIAL_SESSION') return;
-      if (!initDone.current) return;
+    let sub;
+    try {
+      const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!mounted) return;
+        if (event === 'INITIAL_SESSION') return;
+        if (!initDone.current) return;
 
-      try {
-        if (session?.user) {
-          setUser(session.user);
-          const r = await fetchRole(session.user.id);
-          if (mounted) setRole(r ?? 'UNKNOWN');
-        } else {
-          setUser(null);
-          setRole(null);
+        try {
+          if (session?.user) {
+            setUser(session.user);
+            const r = await fetchRole(session.user.id);
+            if (mounted) setRole(r ?? 'UNKNOWN');
+          } else {
+            setUser(null);
+            setRole(null);
+          }
+        } catch (err) {
+          console.error('[useAuth] onAuthStateChange:', err.message);
+        } finally {
+          if (mounted) setLoading(false);
         }
-      } catch (err) {
-        console.error('[useAuth] onAuthStateChange error:', err.message);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    });
+      });
+      sub = data;
+    } catch (err) {
+      console.error('[useAuth] subscription setup:', err.message);
+      if (mounted) setLoading(false);
+    }
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      try { sub?.subscription?.unsubscribe(); } catch {}
     };
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await getSupabase().auth.signOut();
+    } catch (err) {
+      console.error('[useAuth] signOut:', err.message);
+    }
     setUser(null);
     setRole(null);
   };
