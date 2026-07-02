@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { AuthGuard } from '@/components/shared/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 export default function CustomerHome() {
   const { user } = useAuth();
